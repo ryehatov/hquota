@@ -69,8 +69,9 @@ Do not use UID 0. Ensure the key file is readable by the configured broker UID.
 File-backed Compose secrets do not portably remap ownership. The broker receives
 read-only credential mounts and no Hermes data volume. Hermes receives only its
 own runtime data, the Skill, and the shared socket, never provider credentials.
-The Hermes base image's own configuration and gateway startup requirements still
-apply. Review them before starting a deployment.
+The Hermes target runs `hermes gateway run` directly as the non-root user rather
+than using the base image's s6 initialization. Configure Hermes and its messaging
+platforms in its own data directory before starting the gateway.
 
 The `quota` Skill is mounted into `$HERMES_HOME/skills/quota`. For a non-Compose
 installation, copy `skills/quota` into the Hermes skills directory and install
