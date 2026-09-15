@@ -1,6 +1,11 @@
+pub mod broker;
 pub mod cli;
+pub mod client;
 pub mod codex;
 pub mod command_code;
 pub mod config;
+pub mod doctor;
 pub mod http;
 pub mod model;
+pub mod protocol;
+pub mod render;
