@@ -1,0 +1,38 @@
+{
+  "schema_version": 1,
+  "fetched_at": "2026-09-15T00:00:00Z",
+  "accounts": [
+    {
+      "provider": "codex", "account": "business", "status": "ok",
+      "primary_scope": "codex", "headroom_percent": 50,
+      "scopes": [{"id": "codex", "role": "primary", "label": null}],
+      "facts": [
+        {"type": "rate_window", "scope": "codex", "duration_seconds": 18000, "canonical_window": "5h", "used_percent": 31, "remaining_percent": 69, "reset_at": "2026-09-15T11:00:00Z", "used_value": null, "limit_value": null, "unit": null},
+        {"type": "rate_window", "scope": "codex", "duration_seconds": 604800, "canonical_window": "7d", "used_percent": 50, "remaining_percent": 50, "reset_at": "2026-09-15T11:00:00Z", "used_value": null, "limit_value": null, "unit": null},
+        {"type": "availability", "scope": "codex", "allowed": true, "reason_code": null}
+      ],
+      "error": null
+    },
+    {
+      "provider": "codex", "account": "personal", "status": "error",
+      "primary_scope": null, "headroom_percent": null, "scopes": [], "facts": [],
+      "error": {"code": "authentication_required"}
+    },
+    {
+      "provider": "command-code", "account": "goat", "status": "ok",
+      "primary_scope": "included", "headroom_percent": 75,
+      "scopes": [
+        {"id": "included", "role": "primary", "label": null},
+        {"id": "purchased-credits", "role": "auxiliary", "label": null},
+        {"id": "free-credits", "role": "auxiliary", "label": null}
+      ],
+      "facts": [
+        {"type": "rate_window", "scope": "included", "duration_seconds": 18000, "canonical_window": "5h", "used_percent": 25, "remaining_percent": 75, "reset_at": "2026-09-15T11:00:00Z", "used_value": 0.75, "limit_value": 3.0, "unit": "credits"},
+        {"type": "rate_window", "scope": "included", "duration_seconds": 604800, "canonical_window": "7d", "used_percent": 10, "remaining_percent": 90, "reset_at": null, "used_value": 1.5, "limit_value": 15.0, "unit": "credits"},
+        {"type": "balance", "scope": "purchased-credits", "value": 2.5, "unit": "credits", "unlimited": false},
+        {"type": "balance", "scope": "free-credits", "value": 1.0, "unit": "credits", "unlimited": false}
+      ],
+      "error": null
+    }
+  ]
+}

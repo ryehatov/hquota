@@ -1,5 +1,6 @@
 use crate::{
     config::{AccountConfig, Config, Provider},
+    doctor::{Diagnostic, diagnostics as account_diagnostics, unknown_fields},
     http,
     model::{AccountQuota, ErrorCode, QuotaReport, timestamp},
     protocol::{self, Operation, Request, Response},
@@ -18,7 +19,7 @@ pub fn acquire(
     config: &Config,
     client: &reqwest::blocking::Client,
     doctor: bool,
-) -> (QuotaReport, Vec<crate::doctor::Diagnostic>) {
+) -> (QuotaReport, Vec<Diagnostic>) {
     let results: Vec<_> = std::thread::scope(|scope| {
         let handles: Vec<_> = config
             .accounts
@@ -47,7 +48,7 @@ pub fn acquire(
         .into_iter()
         .map(|(account, unknown)| {
             if doctor {
-                diagnostics.extend(crate::doctor::diagnostics(&account, unknown));
+                diagnostics.extend(account_diagnostics(&account, unknown));
             }
             account
         })
@@ -75,7 +76,7 @@ fn fetch(
         };
         let body = http::fetch(client, account.provider(), credential)?;
         if doctor {
-            unknown = crate::doctor::unknown_fields(account.provider(), &body);
+            unknown = unknown_fields(account.provider(), &body);
         }
         match account.provider() {
             Provider::Codex => crate::codex::normalize(&body, account.name()),

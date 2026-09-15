@@ -69,7 +69,7 @@ fn parse_command(bytes: &[u8]) -> Result<Credential, ErrorCode> {
         account_id: None,
     })
 }
-pub fn client() -> Result<Client, ErrorCode> {
+fn builder() -> reqwest::blocking::ClientBuilder {
     Client::builder()
         .connect_timeout(Duration::from_secs(3))
         .timeout(Duration::from_secs(10))
@@ -78,6 +78,9 @@ pub fn client() -> Result<Client, ErrorCode> {
         .https_only(true)
         .retry(reqwest::retry::never())
         .user_agent(concat!("hquota/", env!("CARGO_PKG_VERSION")))
+}
+pub fn client() -> Result<Client, ErrorCode> {
+    builder()
         .build()
         .map_err(|_| ErrorCode::UpstreamUnavailable)
 }
@@ -97,7 +100,9 @@ pub fn fetch(
     if let Some(id) = credential.account_id {
         request = request.header("ChatGPT-Account-Id", id);
     }
-    let response = request.send().map_err(transport_error)?;
+    response_body(request.send().map_err(transport_error)?)
+}
+fn response_body(response: reqwest::blocking::Response) -> Result<Vec<u8>, ErrorCode> {
     match response.status().as_u16() {
         200..=299 => response
             .bytes()
@@ -142,6 +147,120 @@ mod tests {
             serde_json::to_string(&ErrorCode::CredentialInvalid).unwrap(),
             "\"credential_invalid\""
         );
+    }
+    fn read_request(stream: &mut std::net::TcpStream) {
+        use std::io::Read;
+        stream
+            .set_read_timeout(Some(Duration::from_secs(2)))
+            .unwrap();
+        let mut head = Vec::new();
+        while !head.ends_with(b"\r\n\r\n") {
+            assert!(head.len() < 4096);
+            let mut byte = [0];
+            stream.read_exact(&mut byte).unwrap();
+            head.push(byte[0]);
+        }
+    }
+    #[test]
+    fn redirects_and_error_bodies_are_not_exposed() {
+        use std::{io::Write, net::TcpListener};
+        for status in [302, 401, 403, 500] {
+            let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+            let address = listener.local_addr().unwrap();
+            let server = std::thread::spawn(move || {
+                let (mut stream, _) = listener.accept().unwrap();
+                read_request(&mut stream);
+                stream.write_all(format!("HTTP/1.1 {status} Test\r\nLocation: http://127.0.0.1:1/forbidden\r\nContent-Length: 14\r\nConnection: close\r\n\r\nprivate-marker").as_bytes()).unwrap();
+            });
+            // Only the test disables HTTPS for a local plaintext fixture server.
+            let response = builder()
+                .https_only(false)
+                .build()
+                .unwrap()
+                .get(format!("http://{address}"))
+                .send()
+                .unwrap();
+            assert_eq!(response.status().as_u16(), status);
+            let result = response_body(response);
+            assert_eq!(
+                result,
+                Err(if status == 401 || status == 403 {
+                    ErrorCode::AuthenticationRequired
+                } else {
+                    ErrorCode::UpstreamUnavailable
+                })
+            );
+            assert!(
+                !serde_json::to_string(&result.unwrap_err())
+                    .unwrap()
+                    .contains("private-marker")
+            );
+            server.join().unwrap();
+        }
+    }
+    #[test]
+    fn proxy_environment_child() {
+        let Ok(address) = std::env::var("HQUOTA_TEST_PROXY_TARGET") else {
+            return;
+        };
+        let address: std::net::SocketAddr = address.parse().unwrap();
+        let response = builder()
+            .https_only(false)
+            .resolve("fixture.invalid", address)
+            .build()
+            .unwrap()
+            .get(format!("http://fixture.invalid:{}/", address.port()))
+            .send()
+            .unwrap();
+        assert_eq!(response.status().as_u16(), 200);
+    }
+    #[test]
+    fn environment_proxy_is_disabled() {
+        use std::{io::Write, net::TcpListener};
+        let listener = TcpListener::bind("127.0.0.1:0").unwrap();
+        listener.set_nonblocking(true).unwrap();
+        let address = listener.local_addr().unwrap();
+        let mut child = std::process::Command::new(std::env::current_exe().unwrap())
+            .args(["--exact", "http::tests::proxy_environment_child"])
+            .env("HQUOTA_TEST_PROXY_TARGET", address.to_string())
+            .env("HTTP_PROXY", "http://127.0.0.1:1")
+            .env("http_proxy", "http://127.0.0.1:1")
+            .env("ALL_PROXY", "http://127.0.0.1:1")
+            .env("all_proxy", "http://127.0.0.1:1")
+            .env("NO_PROXY", "")
+            .env("no_proxy", "")
+            .spawn()
+            .unwrap();
+        let start = std::time::Instant::now();
+        loop {
+            match listener.accept() {
+                Ok((mut stream, _)) => {
+                    stream
+                        .set_read_timeout(Some(Duration::from_secs(2)))
+                        .unwrap();
+                    read_request(&mut stream);
+                    stream
+                        .write_all(
+                            b"HTTP/1.1 200 OK\r\nContent-Length: 0\r\nConnection: close\r\n\r\n",
+                        )
+                        .unwrap();
+                    break;
+                }
+                Err(e) if e.kind() == std::io::ErrorKind::WouldBlock => {
+                    if let Some(status) = child.try_wait().unwrap() {
+                        panic!("proxy test child exited before direct request: {status}");
+                    }
+                    if start.elapsed() > Duration::from_secs(5) {
+                        child.kill().unwrap();
+                        child.wait().unwrap();
+                        panic!("proxy test timed out");
+                    }
+                    std::thread::yield_now();
+                }
+                Err(e) => panic!("{e}"),
+            }
+        }
+        assert!(child.wait().unwrap().success());
     }
     #[test]
     fn https_only_rejects_plain_http() {
