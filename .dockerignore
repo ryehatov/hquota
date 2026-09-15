@@ -1,0 +1,7 @@
+.git
+target
+.pi
+.env
+*.key
+*auth.json
+credentials

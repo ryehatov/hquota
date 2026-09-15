@@ -1,0 +1,36 @@
+services:
+  gateway:
+    build:
+      context: .
+      target: hermes
+    user: "${HERMES_UID:?set HERMES_UID}:${HERMES_GID:?set HERMES_GID}"
+    environment:
+      HOME: /home/hermes
+      HERMES_HOME: /home/hermes/.hermes
+    volumes:
+      - ${HERMES_DATA_DIR:?set HERMES_DATA_DIR}:/home/hermes/.hermes
+      - ./skills/quota:/home/hermes/.hermes/skills/quota:ro
+      - ${HQUOTA_RUNTIME_DIR:?set HQUOTA_RUNTIME_DIR}:/run/hquota
+    depends_on:
+      - hquota
+
+  hquota:
+    build:
+      context: .
+      target: broker
+    command: ["serve", "--config", "/etc/hquota/config.json"]
+    user: "${HERMES_UID:?set HERMES_UID}:${HERMES_GID:?set HERMES_GID}"
+    read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
+    volumes:
+      - ${HQUOTA_RUNTIME_DIR:?set HQUOTA_RUNTIME_DIR}:/run/hquota
+      - ./config.example.json:/etc/hquota/config.json:ro
+      - ${CODEX_BUSINESS_HOME:?set CODEX_BUSINESS_HOME}:/credentials/codex/business:ro
+      - ${CODEX_PERSONAL_HOME:?set CODEX_PERSONAL_HOME}:/credentials/codex/personal:ro
+    secrets:
+      - command-code-goat
+
+secrets:
+  command-code-goat:
+    file: ${COMMAND_CODE_KEY_FILE:?set COMMAND_CODE_KEY_FILE}

@@ -1,0 +1,8 @@
+{
+  "schema_version": 1,
+  "accounts": [
+    { "provider": "codex", "name": "business", "auth_json": "/credentials/codex/business/auth.json" },
+    { "provider": "codex", "name": "personal", "auth_json": "/credentials/codex/personal/auth.json" },
+    { "provider": "command-code", "name": "goat", "api_key_file": "/run/secrets/command-code-goat" }
+  ]
+}
