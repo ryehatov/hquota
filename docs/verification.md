@@ -4,7 +4,7 @@ Verified on 2026-09-15 without real provider credentials or provider requests.
 
 - `cargo fmt --check` passed.
 - `cargo clippy --all-targets --all-features -- -D warnings` passed.
-- `cargo test --locked` passed, with 21 top-level tests and a proxy-environment subprocess check.
+- `cargo test --locked` passed, with 23 top-level tests and a proxy-environment subprocess check.
 - `cargo build --release --locked` passed.
 - `git diff --check` passed.
 - Compose configuration validated with synthetic absolute host paths.
@@ -30,7 +30,17 @@ Not claimed: live provider compatibility, authenticated Hermes conversations,
 or full three-account live acceptance under design §31. Those checks require
 operator-controlled credentials and were expressly excluded from this task.
 
-The editor repeatedly replayed three obsolete `cannot find doctor in crate`
-diagnostics from before the module export was added. The export is present,
-compiler and Clippy checks pass, and those diagnostics were marked stale using
-the diagnostic tool. They do not represent current compiler errors.
+Follow-up verification on 2026-09-16 covered the Codex auxiliary scope-ID
+collision fix. Independent review approved the corrected allocator and regression
+tests. All four Rust gates and `git diff --check` passed again. The broker image
+was rebuilt from the current source and exercised with networking disabled,
+a read-only root filesystem, no capabilities and a non-root UID. The example
+three-account registry, without credential mounts, confirmed socket permissions,
+isolated missing-credential results, provider/account filters, an empty unknown
+selector result and doctor's nonzero failure status.
+
+Two acceptance-harness attempts were corrected before that successful check.
+Mounting the host-built binary into Debian failed due to its newer glibc
+requirement; the Dockerfile-built binary was used instead. A synthetic config
+used an invalid `codex_home` key; the checked-in example with `auth_json` replaced
+it. Neither attempt required a product-code change.

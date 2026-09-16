@@ -3,6 +3,7 @@ use crate::{
     model::{AccountQuota, ErrorCode, QuotaFact, QuotaScope, Role, Unit, timestamp},
 };
 use serde::Deserialize;
+use std::collections::HashSet;
 #[derive(Deserialize)]
 struct Response {
     rate_limit: Option<Pool>,
@@ -121,6 +122,7 @@ pub fn normalize(bytes: &[u8], account: &str) -> Result<AccountQuota, ErrorCode>
             &mut facts,
         )?;
     }
+    let mut used: HashSet<String> = scopes.iter().map(|scope| scope.id.clone()).collect();
     for (index, additional) in response
         .additional_rate_limits
         .unwrap_or_default()
@@ -133,13 +135,21 @@ pub fn normalize(bytes: &[u8], account: &str) -> Result<AccountQuota, ErrorCode>
             &additional.metered_feature
         };
         let safe = raw.to_ascii_lowercase().replace(['_', ' '], "-");
-        let id = if crate::config::valid_name(&safe)
+        let base = if crate::config::valid_name(&safe)
             && !["codex", "extra-credits", "individual-spend-control"].contains(&safe.as_str())
         {
             safe
         } else {
             format!("additional-{}", index + 1)
         };
+        // Distinct identifiers may normalize to the same ID, and a generated ID may equal a
+        // provider ID. Disambiguate deterministically so every scope gets a unique ID.
+        let mut id = base.clone();
+        let mut suffix = 2;
+        while !used.insert(id.clone()) {
+            id = format!("{base}-{suffix}");
+            suffix += 1;
+        }
         scopes.push(QuotaScope {
             id: id.clone(),
             role: Role::Auxiliary,
