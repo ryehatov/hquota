@@ -17,10 +17,6 @@ target
 rustc-ice-*.txt
 
 # RustRover
-#  JetBrains specific template is maintained in a separate JetBrains.gitignore that can
-#  be found at https://github.com/github/gitignore/blob/main/Global/JetBrains.gitignore
-#  and can be added to the global gitignore or merged into this file.  For a more nuclear
-#  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
 # Local configuration and credentials (keep config.example.json tracked)
@@ -29,6 +25,7 @@ rustc-ice-*.txt
 !.env.example
 /config.json
 /run/
+/secrets/
 *.key
 *auth.json
 credentials/
