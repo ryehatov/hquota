@@ -23,4 +23,4 @@ services:
 
 secrets:
   command-code-goat:
-    file: ${COMMAND_CODE_KEY_FILE:?run sh ./compose-setup.sh first}
+    file: ./secrets/command-code-goat
