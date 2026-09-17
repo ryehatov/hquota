@@ -111,23 +111,44 @@ is `hermes-hquota`.
 
 ## External Hermes stack
 
-An external `hermes-stack` should own the Hermes container and any SearXNG or
-other services. It should:
+An external `hermes-stack` should follow the official Hermes Compose gateway
+contract and add only the hquota-specific mounts and environment. In particular,
+use the image entrypoint unchanged and pass the gateway command directly:
 
-- use `hermes-hquota:local` for Hermes and `hquota-broker:local` for the broker;
-- pass `HERMES_UID` and `HERMES_GID` to Hermes as environment variables;
-- not set `user:` or override the Hermes entrypoint;
+```yaml
+services:
+  hermes:
+    image: hermes-hquota:local
+    container_name: hermes
+    restart: unless-stopped
+    command: ["gateway", "run"]
+    volumes:
+      - ${HOME}/.hermes:/opt/data
+      - ./run/hquota:/run/hquota
+      - ./hquota-skill:/opt/data/skills/quota:ro
+    environment:
+      HERMES_UID: ${HERMES_UID}
+      HERMES_GID: ${HERMES_GID}
+```
+
+Do not set `user:`, override the entrypoint, or wrap `gateway run` in a shell.
+The official Hermes entrypoint and main wrapper perform s6 bootstrap, runtime
+HOME/PATH setup, UID/GID remapping, and privilege drop. If a deployment needs a
+one-time `hermes config ...` command, run it as a separate `docker compose run`
+invocation rather than prepending it to the persistent gateway command.
+
+The external stack should also:
+
+- use `hquota-broker:local` for the broker;
 - bind the same host `run/hquota` directory to `/run/hquota` in both containers;
 - mount provider credentials and the Command Code secret only into the broker;
-- install or mount `skills/quota` into the Hermes persistent Skill directory
-  (for the official image, under `/opt/data/skills`);
+- install or mount `skills/quota` into `/opt/data/skills`;
 - keep `run/hquota` mode `0700` and owned by the shared intended non-root UID.
 
 The Hermes process receives only normalized quota data over the Unix socket. It
-must never receive provider credential mounts.
-
-The quota Skill calls `hquota --json` once, checks schema version 1, and reports
-facts without choosing accounts or routing future work.
+must never receive provider credential mounts. The quota Skill calls
+`hquota --json` once, checks schema version 1, and reports facts without choosing
+accounts or routing future work.
 
 ## Provider evidence and limits
 
