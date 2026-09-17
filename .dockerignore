@@ -2,6 +2,8 @@
 target
 .pi
 .env
+run
+config.json
 *.key
 *auth.json
 credentials

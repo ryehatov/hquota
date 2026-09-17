@@ -49,34 +49,69 @@ Files are read anew per request, never modified or cached. Mount credential
 
 ## Docker Compose
 
-`Dockerfile` has `broker` and `hermes` targets sharing the same compiled binary.
-The runtime images use a non-root user. Compose requires explicit UID/GID and
-host paths; it does not create a root initialization service.
+`Dockerfile` has `broker` and `hermes` targets that share one compiled `hquota`
+binary. `compose.yaml` intentionally owns only the broker service. An external
+Hermes stack should own its Hermes container and mount the shared socket.
+
+Run the one-time setup with the two Codex credential directories and the Command
+Code key file:
 
 ```sh
-export HERMES_UID="$(id -u)" HERMES_GID="$(id -g)"
-export HQUOTA_RUNTIME_DIR="/run/user/$(id -u)/hquota"
-export HERMES_DATA_DIR="$HOME/.hermes"
-install -d -m 0700 "$HQUOTA_RUNTIME_DIR" "$HERMES_DATA_DIR"
-# Set CODEX_BUSINESS_HOME and CODEX_PERSONAL_HOME to existing credential directories.
-# Set COMMAND_CODE_KEY_FILE to an existing broker-readable key file.
-docker compose config --quiet
-docker compose build
-docker compose up -d
+sh ./compose-setup.sh \
+  "$HOME/.codex-business" \
+  "$HOME/.codex-personal" \
+  "$HOME/.config/command-code/api-key"
 ```
 
-Do not use UID 0. Ensure the key file is readable by the configured broker UID.
-File-backed Compose secrets do not portably remap ownership. The broker receives
-read-only credential mounts and no Hermes data volume. Hermes receives only its
-own runtime data, the Skill, and the shared socket, never provider credentials.
-The Hermes target runs `hermes gateway run` directly as the non-root user rather
-than using the base image's s6 initialization. Configure Hermes and its messaging
-platforms in its own data directory before starting the gateway.
+The script writes `.env`, copies `config.example.json` to ignored `config.json` on
+first use, and creates `run/hquota` with mode `0700` under the current non-root
+UID. The generated `.env` contains only host-dependent values required by Compose:
+UID/GID and credential paths.
 
-The `quota` Skill is mounted into `$HERMES_HOME/skills/quota`. For a non-Compose
-installation, copy `skills/quota` into the Hermes skills directory and install
-`hquota` on PATH. The Skill calls `hquota --json` once, checks schema version 1,
-and reports facts without choosing accounts or routing future work.
+Build and start the broker:
+
+```sh
+docker compose config --quiet
+docker compose build hquota
+docker compose up -d hquota
+docker logs hermes-hquota
+```
+
+The broker image is `hquota-broker:local` and the container name is
+`hermes-hquota`. Both are fixed in `compose.yaml`; they are not environment
+configuration.
+
+To build an Hermes image containing the same `hquota` binary:
+
+```sh
+docker build --target hermes -t hermes-hquota:local .
+```
+
+If Hermes must extend another local base image, pass it only at build time:
+
+```sh
+docker build \
+  --build-arg HERMES_BASE_IMAGE=hermes-base:hquota \
+  --target hermes \
+  -t hermes-hquota:local \
+  .
+```
+
+For an external `hermes-stack`, reference `hquota-broker:local` for the broker and
+`hermes-hquota:local` when the derivative Hermes image is needed. The external
+stack does not need `HQUOTA_SOURCE`, a mounted hquota source tree, or a second
+Dockerfile that copies the `hquota` binary.
+
+Do not use UID 0. Ensure the key file and Codex credential files are readable by
+the configured broker UID. File-backed Compose secrets do not portably remap
+ownership. The broker receives read-only credential mounts and never receives
+Hermes data. Hermes should receive only its own data, the quota Skill, and the
+shared socket, never provider credentials.
+
+The `quota` Skill is in `skills/quota`. An external Hermes stack must install or
+mount it into the Hermes skills directory. The Skill calls `hquota --json` once,
+checks schema version 1, and reports facts without choosing accounts or routing
+future work.
 
 ## Provider evidence and limits
 
