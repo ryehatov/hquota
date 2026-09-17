@@ -2,7 +2,7 @@
 
 **Status:** Normative implementation specification  
 **Version:** 1  
-**Date:** 2026-09-15  
+**Date:** 2026-09-17  
 **Language:** Rust
 
 ## 1. Design objective
@@ -306,8 +306,8 @@ fn normalize_used_percent(raw: f64) -> Result<u8, NormalizeError> {
 
 Then:
 
-```rust
-remaining = 100 - used;
+```text
+remaining = 100 - used
 ```
 
 For an upstream integer percentage, convert to `f64` only if a shared helper requires it. A direct integer validation path is preferable.
@@ -424,13 +424,7 @@ Set a static, non-secret user agent such as:
 hquota/<crate-version>
 ```
 
-Set:
-
-```text
-Accept: application/json
-```
-
-where appropriate.
+Set `Accept: application/json` where appropriate.
 
 Never log a `reqwest::Request` with headers attached.
 
@@ -448,22 +442,8 @@ For each Codex fetch:
 6. return `credential_missing` for file-not-found;
 7. return `credential_invalid` for malformed JSON or missing required fields.
 
-Use a minimal private DTO instead of mirroring the complete Codex auth schema:
-
-```rust
-#[derive(Deserialize)]
-struct CodexAuthFile {
-    tokens: Option<CodexTokens>,
-}
-
-#[derive(Deserialize)]
-struct CodexTokens {
-    access_token: String,
-    account_id: Option<String>,
-}
-```
-
-Do not use `deny_unknown_fields` for the provider-owned credential format. New unrelated fields must not break credential parsing.
+Use a minimal private DTO instead of mirroring the complete Codex auth schema.
+Do not use `deny_unknown_fields` for the provider-owned credential format.
 
 ### 14.2 Request
 
@@ -477,44 +457,11 @@ Accept: application/json
 User-Agent: hquota/<version>
 ```
 
-Do not follow redirects.
-
-Do not refresh on `401` or `403`.
-
-Map authentication failure to:
-
-```text
-authentication_required
-```
-
-Map connection/TLS/5xx and other non-auth transport failures to the smallest applicable public error code from `spec.md`.
-
-Do not include the response body in the public error or stderr log.
+Do not follow redirects. Do not refresh on `401` or `403`. Map authentication failure to `authentication_required`. Do not include the response body in public errors or stderr logs.
 
 ### 14.3 Wire DTO strategy
 
-The WHAM endpoint is a first-party but unsupported internal surface. Keep its DTOs private to `codex.rs`.
-
-Use tolerant Serde structs:
-
-- do not apply `deny_unknown_fields` in normal wire parsing;
-- make provider-optional windows optional;
-- model known semantic fields with strict Rust types;
-- reject type changes for known fields;
-- do not recover a known malformed field from another field by heuristic.
-
-Known version 1 normalization targets include:
-
-- ordinary rate-limit windows;
-- additional rate-limit pools when exposed;
-- credits/balance state when exposed;
-- spend-control state when exposed and unambiguous;
-- explicit ordinary-usage availability when exposed;
-- provider rate-limit reached reason when exposed.
-
-A response is valid even when only one rate window is present.
-
-Do not require both `5h` and `7d`.
+Keep WHAM DTOs private to `codex.rs`. Ignore additive unknown fields, use strict Rust types for known semantic fields, and reject incompatible changes to known fields. A response is valid when only one rate window is present.
 
 ### 14.4 Window conversion
 
@@ -533,11 +480,7 @@ Do not classify by `primary_window` versus `secondary_window` position.
 
 ### 14.5 Additional limits
 
-If an additional limit has a provider-owned identifier, preserve it through deterministic scope normalization.
-
-Every additional limit is auxiliary in version 1.
-
-If an additional limit object is present but malformed in a known semantic field, fail the account atomically with `upstream_schema_changed`.
+Preserve provider-owned identifiers through deterministic scope normalization. Every additional limit is auxiliary in version 1. A malformed known semantic field fails the account atomically with `upstream_schema_changed`.
 
 ## 15. Command Code adapter
 
@@ -551,9 +494,7 @@ For each Command Code fetch:
 4. reject an empty result or any remaining ASCII whitespace;
 5. keep the key only for the request lifetime.
 
-File-not-found maps to `credential_missing`.
-
-Invalid UTF-8 or an empty value maps to `credential_invalid`.
+File-not-found maps to `credential_missing`. Invalid UTF-8 or an empty value maps to `credential_invalid`.
 
 ### 15.2 Request
 
@@ -566,46 +507,15 @@ Accept: application/json
 User-Agent: hquota/<version>
 ```
 
-Do not call `/alpha/billing/subscriptions`, `/alpha/usage/summary`, or other endpoints in version 1.
+Do not call other Command Code endpoints in version 1.
 
 ### 15.3 Normalization
 
-Keep Command Code wire DTOs private to `command_code.rs`.
-
-Normalize only fields whose semantics are established by the current response fixture and provider documentation/research.
-
-Expected semantic categories are:
-
-- `windowLimits.fiveHour` -> primary `rate_window`;
-- `windowLimits.weekly` -> primary `rate_window`;
-- monthly credits -> auxiliary balance when the response represents a current remaining amount;
-- purchased credits -> auxiliary balance;
-- free credits -> auxiliary balance.
-
-For rolling windows that expose numeric used and cap values:
-
-```text
-used_percent_raw = 100 * used / cap
-```
-
-Requirements:
-
-- `cap` must be finite and greater than zero;
-- `used` must be finite and non-negative;
-- use conservative integer percentage normalization;
-- preserve continuous `used_value` and `limit_value` as `f64`;
-- use `unit = credits` when the provider endpoint defines the values as credits;
-- preserve the provider reset time when available.
-
-Do not hard-code plan caps such as GOAT limits into the domain. Use the returned cap.
-
-If a balance field's meaning is ambiguous between granted, used, or remaining, omit the balance fact rather than guess.
+Keep Command Code wire DTOs private to `command_code.rs`. Normalize only fields whose semantics are established. Rolling windows use the returned cap; do not hard-code plan limits. Omit balance facts whose meaning is ambiguous.
 
 ## 16. Provider response atomicity
 
 Provider parsing and normalization for one account must complete before an `AccountQuota` success value is constructed.
-
-Implementation pattern:
 
 ```text
 read credential
@@ -618,49 +528,11 @@ read credential
   -> construct AccountQuota::ok
 ```
 
-Any failure before the final step returns:
-
-```text
-AccountQuota::error(...)
-```
-
-with no scopes and no facts.
-
-Do not return partial facts.
+Any failure before the final step returns an account error with no scopes and no facts. Do not return partial facts.
 
 ## 17. Broker concurrency
 
-Use blocking threads only.
-
-### 17.1 Connection concurrency
-
-The listener loop should:
-
-```text
-accept connection
-spawn one std::thread
-return immediately to accept
-```
-
-Each connection handles exactly one request and exits.
-
-No worker pool is required for version 1.
-
-### 17.2 Account concurrency
-
-For `quota` and live `doctor` operations, fetch accounts concurrently with:
-
-```rust
-std::thread::scope
-```
-
-Use one scoped thread per configured account.
-
-Join every account thread and restore deterministic configuration order before serialization.
-
-Do not share credential values between account threads.
-
-No mutex is required for report data if each thread returns one owned account result.
+Use blocking threads only. Spawn one thread per accepted connection and one scoped thread per configured account for quota acquisition. Restore deterministic configuration order before serialization. Do not share credentials between account threads.
 
 ## 18. Unix socket lifecycle
 
@@ -670,306 +542,87 @@ Default path:
 /run/hquota/hquota.sock
 ```
 
-### 18.1 Startup
+Before binding, require the parent directory to exist, be owned by the broker UID, and have exact mode `0700`. Reject UID 0. Probe an existing socket before removing a stale socket. Set the bound socket mode to `0600`. Do not recursively delete runtime-directory contents.
 
-Before binding:
-
-1. verify the parent runtime directory exists;
-2. verify it is not unexpectedly permissive;
-3. if the socket path exists, first test whether a live broker accepts a connection;
-4. if a live broker exists, fail startup;
-5. if the existing path is a stale Unix socket, remove it;
-6. if the existing path is not a Unix socket, fail startup;
-7. bind `UnixListener`;
-8. set socket mode `0600` explicitly.
-
-Do not recursively delete runtime-directory contents.
-
-### 18.2 I/O
-
-Set read and write timeouts to 15 seconds on accepted and client-side `UnixStream` values.
-
-Framing:
-
-```text
-client writes request JSON
-client shutdown(Write)
-broker reads to EOF
-broker writes response JSON
-broker shutdown/close
-client reads to EOF
-```
-
-Do not append protocol messages after the first response.
+Set read and write timeouts to 15 seconds. Each connection carries exactly one request and one response, framed by EOF.
 
 ## 19. Broker protocol types
 
-Use a small internal envelope.
-
-Request:
-
-```rust
-struct Request {
-    protocol_version: u32,
-    op: Operation,
-}
-```
-
-Operations:
-
-```text
-quota
-health
-doctor
-```
-
-Recommended response envelope:
-
-```json
-{
-  "protocol_version": 1,
-  "status": "ok",
-  "payload": { }
-}
-```
-
-Protocol errors use:
-
-```json
-{
-  "protocol_version": 1,
-  "status": "error",
-  "error": {
-    "code": "protocol_version_mismatch"
-  }
-}
-```
-
-Protocol error codes are internal and do not belong to the public `QuotaReport` schema.
-
-The client must verify exact protocol version before interpreting `payload`.
-
-For a `quota` operation, the payload is a `QuotaReport`.
-
-For `health`, use only process-local state:
-
-```json
-{
-  "status": "ok",
-  "configured_accounts": 3
-}
-```
-
-`health` must not read credentials or contact providers.
+Use a small internal envelope with exact `protocol_version == 1`. Operations are `quota`, `health`, and `doctor`. `health` uses process-local state only and must not read credentials or contact providers.
 
 ## 20. Doctor implementation
 
-`doctor` performs live diagnostics.
-
-For every configured account, test:
-
-```text
-credential file exists
-credential minimal fields parse
-provider request succeeds
-known semantic fields parse
-normalization invariants hold
-unknown additive fields are reported when detectable
-```
-
-Suggested internal diagnostic record:
-
-```rust
-struct Diagnostic {
-    provider: Provider,
-    account: String,
-    severity: Severity,
-    code: DiagnosticCode,
-}
-```
-
-Keep diagnostic codes machine-oriented internally even if version 1 exposes only human `hquota doctor` output.
-
-Do not include arbitrary provider messages.
-
-Exit behavior follows `spec.md`.
+`doctor` performs live diagnostics. It checks credential readability and shape, provider request success, known semantic fields, normalization invariants, and detectable additive unknown fields. Never emit arbitrary provider messages or secrets.
 
 ## 21. Unknown-field diagnostics
 
-Normal Serde deserialization ignores unknown fields, so `doctor` needs a separate low-cost detection path if unknown-field reporting is implemented.
-
-Preferred implementation:
-
-1. parse the response once into `serde_json::Value`;
-2. inspect known object keys against small static key sets;
-3. record unknown keys as warnings;
-4. deserialize the same `Value` into the typed wire DTO;
-5. normalize normally.
-
-Do this only in `doctor` mode.
-
-Normal quota requests should deserialize directly into typed DTOs and avoid the extra inspection logic.
-
-Do not build a generic JSON-schema validator.
+Normal deserialization ignores unknown fields. In `doctor` mode only, parse into `serde_json::Value`, inspect known object keys against small static sets, then deserialize and normalize. Do not add a generic JSON-schema validator.
 
 ## 22. Human renderer
 
-The renderer consumes only `QuotaReport`.
-
-It must not access provider DTOs or credentials.
-
-Suggested ordering:
-
-```text
-provider order: configuration-derived first appearance
-account order: configuration order
-scope order: primary, auxiliary, unknown
-rate windows: canonical 5h, canonical 7d, then other durations
-other facts: balance, spend limit, availability
-```
-
-Use a 10-cell bar:
-
-```text
-filled_cells = round(remaining_percent / 10)
-```
-
-The bar is presentation-only and does not change domain values.
-
-Example:
-
-```text
-Quota · 2026-09-15 09:00 UTC
-
-Codex
-  business
-    5h  ████████░░ 78% left · reset 11:43 UTC
-    7d  █████░░░░░ 52% left · reset 2026-09-19 18:00 UTC
-    headroom 52%
-```
-
-Do not add a TUI dependency.
+The renderer consumes only `QuotaReport`. It must not access provider DTOs or credentials. Keep deterministic provider/account/scope ordering. A presentation bar must not alter domain values. Do not add a TUI dependency.
 
 ## 23. Client-side filters
 
-The client always requests one complete `QuotaReport` for the invocation.
-
-Then apply:
-
-```text
---provider
---account
-```
-
-locally before rendering or serializing public output.
-
-`--account NAME` without `--provider` may match more than one provider if the same account name exists in different providers. In that case, return all matching `(provider, account)` pairs. This preserves the specification that the stable identity is the pair, not the account name alone.
-
-An unknown selector that matches no configured report entry should produce an empty filtered report and exit `0`; it is not a broker failure.
+The client always requests one complete `QuotaReport`, then applies `--provider` and `--account` locally. An unmatched selector returns an empty filtered report and exit `0`.
 
 ## 24. Logging
 
-Use direct `eprintln!` calls for a small set of operational events.
-
-Centralize account-failure formatting so only public error codes are emitted.
-
-Good:
-
-```text
-hquota: codex/business fetch failed: authentication_required
-```
-
-Forbidden:
-
-```text
-hquota: request failed: 401 body={...}
-hquota: Authorization: Bearer ...
-hquota: parsed auth = CodexCredential { ... }
-```
-
-Do not derive `Debug` on secret-bearing types.
-
-Do not print raw `reqwest` errors if they can contain request URLs with future sensitive query parameters. Map them to internal categories first.
+Use direct `eprintln!` calls for a small set of operational events. Emit only normalized public error codes. Never print authorization headers, raw response bodies, credential values, or raw request errors that could contain sensitive URLs.
 
 ## 25. Error mapping
 
 Use one provider-independent account error enum matching `spec.md`.
 
-Suggested mapping:
-
 ```text
 credential file ENOENT           -> credential_missing
-credential parse/shape invalid    -> credential_invalid
-HTTP 401/403                      -> authentication_required
-reqwest timeout                   -> timeout
-DNS/TLS/connect/5xx/other HTTP    -> upstream_unavailable
+credential parse/shape invalid   -> credential_invalid
+HTTP 401/403                     -> authentication_required
+reqwest timeout                  -> timeout
+DNS/TLS/connect/5xx/other HTTP   -> upstream_unavailable
 known provider field incompatible -> upstream_schema_changed
-normalization invariant failure   -> upstream_schema_changed
+normalization invariant failure  -> upstream_schema_changed
 ```
 
 Do not automatically retry any category.
 
-If an account-fetch thread panics, the broker should convert that account to `upstream_unavailable` or fail the whole broker request with a sanitized internal error. Tests should make panics unreachable in normal parsing paths.
+## 26. Docker images
 
-## 26. Docker image
+Use one multi-stage Dockerfile with a shared Rust build and two runtime targets.
 
-Use a multi-stage build.
+The `broker` target must remain a minimal non-root runtime with CA certificates, no compiler toolchain, and only the required executable/runtime files.
 
-Conceptual Dockerfile:
+The `hermes` target is a derivative client image:
 
 ```dockerfile
-FROM rust:1.98.1-bookworm AS build
-WORKDIR /src
-COPY Cargo.toml Cargo.lock ./
-COPY src ./src
-RUN cargo build --release --locked
-
-FROM debian:bookworm-slim
-RUN apt-get update \
- && apt-get install -y --no-install-recommends ca-certificates \
- && rm -rf /var/lib/apt/lists/*
+ARG HERMES_BASE_IMAGE=nousresearch/hermes-agent:latest
+FROM ${HERMES_BASE_IMAGE} AS hermes
 COPY --from=build /src/target/release/hquota /usr/local/bin/hquota
-USER 10000:10000
-ENTRYPOINT ["hquota"]
-CMD ["serve"]
 ```
 
-The exact base image may change. The required properties are:
-
-- non-root runtime;
-- CA certificates available for HTTPS;
-- no compiler toolchain in the runtime image;
-- only the required executable and runtime files.
+Do not override `USER`, `ENTRYPOINT`, or `CMD` in the Hermes target. Current Hermes images own their s6 bootstrap and runtime privilege drop. The derivative image adds the client binary only. The quota Skill is installed by the external Hermes stack into the persistent Hermes Skill directory rather than copied into an unused image path.
 
 ## 27. Docker Compose integration
 
-Use a host runtime directory rather than a named volume that requires a root initialization helper.
+The repository Compose file owns only the broker. An external Hermes stack owns Hermes and any search or other adjacent services.
 
-Host preparation:
+Use a host directory `./run/hquota` for the shared socket. Before startup it must be owned by the intended non-root UID and have exact mode `0700`.
 
-```sh
-install -d -m 0700 /run/user/"$(id -u)"/hquota
-```
-
-Conceptual Compose configuration:
+The broker Compose service should use:
 
 ```yaml
 services:
-  gateway:
-    image: hermes-agent-with-hquota
-    user: "${HERMES_UID:-10000}:${HERMES_GID:-10000}"
-    volumes:
-      - ${HQUOTA_RUNTIME_DIR}:/run/hquota
-
   hquota:
-    build:
-      context: ./hquota
+    image: hquota-broker:local
+    container_name: hermes-hquota
+    user: "${HERMES_UID}:${HERMES_GID}"
     command: ["serve", "--config", "/etc/hquota/config.json"]
-    user: "${HERMES_UID:-10000}:${HERMES_GID:-10000}"
     read_only: true
+    cap_drop: [ALL]
+    security_opt: [no-new-privileges:true]
     volumes:
-      - ${HQUOTA_RUNTIME_DIR}:/run/hquota
-      - ./hquota/config.json:/etc/hquota/config.json:ro
+      - ./run/hquota:/run/hquota
+      - ./config.json:/etc/hquota/config.json:ro
       - ${CODEX_BUSINESS_HOME}:/credentials/codex/business:ro
       - ${CODEX_PERSONAL_HOME}:/credentials/codex/personal:ro
     secrets:
@@ -977,206 +630,56 @@ services:
 
 secrets:
   command-code-goat:
-    environment: COMMAND_CODE_API_KEY
+    file: ./secrets/command-code-goat
 ```
 
-Then configure:
+The one-time setup copies the operator-provided Command Code key into ignored `./secrets/command-code-goat` with mode `0600`. Do not store the key value or its source pathname in `.env`. `.env` contains only host UID/GID and Codex credential-directory paths.
 
-```json
-{
-  "schema_version": 1,
-  "accounts": [
-    {
-      "provider": "codex",
-      "name": "business",
-      "auth_json": "/credentials/codex/business/auth.json"
-    },
-    {
-      "provider": "codex",
-      "name": "personal",
-      "auth_json": "/credentials/codex/personal/auth.json"
-    },
-    {
-      "provider": "command-code",
-      "name": "goat",
-      "api_key_file": "/run/secrets/command-code-goat"
-    }
-  ]
-}
+The broker receives provider credentials. Hermes does not. Both containers mount the same socket directory and run the hquota client/broker under the same intended non-root UID.
+
+For the current official Hermes container, the external stack must start the container using the image's default root/s6 entrypoint and pass `HERMES_UID`/`HERMES_GID` as environment variables. It must not pin Compose `user:` or replace the Hermes entrypoint. The Hermes bootstrap remaps its internal user, initializes `/opt/data`, sets the runtime home, and drops privileges before the gateway runs.
+
+## 28. Installing the client and Skill in Hermes
+
+Build the derivative image from the same hquota source revision as the broker:
+
+```sh
+docker build --target hermes -t hermes-hquota:local .
 ```
 
-Docker Compose mounts secrets as files for the authorized service. The Hermes service must not list the Command Code secret.
+This puts the same protocol-compatible `hquota` binary on Hermes `PATH` without modifying the base image runtime contract.
 
-If the deployment uses a file-backed Compose secret, verify host ownership and readability for the broker UID because Compose file-backed secret mounts do not provide portable UID remapping.
+The external stack installs or mounts `skills/quota` into the Hermes persistent Skill directory. With the current official Docker image this is under `/opt/data/skills/quota`.
 
-## 28. Installing the client in Hermes
-
-Use one derivative Hermes image for steady state:
-
-```dockerfile
-FROM nousresearch/hermes-agent:latest
-COPY hquota /usr/local/bin/hquota
-```
-
-The copied binary is the same build artifact used by the broker image when practical. This eliminates client/protocol version skew inside one deployment build.
-
-Development MAY bind-mount a local binary instead.
+The external stack must mount only the shared `/run/hquota` socket directory into Hermes. Do not mount Codex credentials or the Command Code secret into Hermes.
 
 ## 29. Hermes Skill
 
 Create one Skill named `quota`.
 
-The Skill should state:
+The Skill must invoke `hquota --json` at most once per user quota request, require schema version 1, use only normalized facts, explain account-local errors without requesting credentials, and never choose or switch accounts.
 
-```text
-When the user asks about current Codex or Command Code quota:
-1. invoke `hquota --json` through Hermes `terminal` once;
-2. read schema_version and fail visibly if unsupported;
-3. use only the returned normalized facts;
-4. explain account-local errors without requesting credentials;
-5. compare headroom only where both accounts expose comparable primary headroom;
-6. do not select or switch accounts.
-```
-
-The Skill should not call provider endpoints itself.
-
-The Skill should not read mounted credential files.
-
-The Skill should not contain API keys or credential setup logic.
-
-A Skill is the correct Hermes integration because the capability is an external CLI that can be invoked through the terminal and does not require Python integration in Hermes.
+The Skill must not call provider endpoints, read credential files, contain API keys, or perform routing policy.
 
 ## 30. Tests
 
-Keep tests close to the code. Use Rust's built-in test harness.
-
-### 30.1 Config tests
-
-Test:
-
-- valid empty config;
-- valid mixed-provider config;
-- unknown top-level field;
-- unknown account field;
-- wrong provider-specific credential field;
-- relative credential path;
-- invalid account name;
-- duplicate `(provider, name)`.
-
-### 30.2 Codex fixture tests
-
-Commit sanitized provider fixtures that cover:
-
-- 5-hour + 7-day windows;
-- only one window present;
-- unknown duration;
-- additive unknown top-level field;
-- additive unknown known-object field;
-- additional rate-limit pool;
-- credit balance when exposed;
-- explicit availability when exposed;
-- malformed known percentage type;
-- malformed known reset timestamp.
+Keep tests close to the code and use Rust's built-in test harness. Tests must cover strict config parsing, provider normalization, headroom derivation, aggregation, protocol behavior, timeout handling, redirect rejection, proxy disabling, secret-redaction behavior, and deterministic public JSON. Do not add a snapshot-test framework.
 
 Never commit real access tokens, account IDs, email addresses, or raw private live responses.
-
-### 30.3 Command Code fixture tests
-
-Cover:
-
-- 5-hour + weekly window;
-- fractional used/cap values;
-- returned cap rather than hard-coded plan cap;
-- monthly balance when unambiguous;
-- purchased/free balances when unambiguous;
-- additive unknown fields;
-- malformed used or cap;
-- zero/negative cap.
-
-### 30.4 Pure normalization tests
-
-Test:
-
-```text
-30.0% used -> 30 / 70
-30.1% used -> 31 / 69
-100% used  -> 100 / 0
-18000 sec  -> 5h
-604800 sec -> 7d
-900 sec    -> null canonical
-```
-
-Test headroom using one and multiple primary windows.
-
-Test that auxiliary windows do not affect headroom.
-
-### 30.5 Aggregation tests
-
-Given three accounts where one fails:
-
-```text
-codex/business -> ok
-codex/personal -> authentication_required
-command-code/goat -> ok
-```
-
-verify:
-
-- three account entries remain;
-- the two successes keep their facts;
-- the error has no facts;
-- normal quota command exits `0`.
-
-### 30.6 Protocol tests
-
-Test:
-
-- quota request/response;
-- health request/response;
-- doctor request/response;
-- exact protocol version success;
-- mismatched protocol version failure;
-- one-request/one-response EOF behavior;
-- client I/O timeout behavior.
-
-Use a temporary Unix socket path under the test temporary directory.
-
-### 30.7 Security tests
-
-At minimum test:
-
-- redirect response is not followed;
-- HTTP client has proxy auto-discovery disabled;
-- secret-bearing types are never formatted by normal error paths;
-- 401 body content does not reach JSON/log output;
-- raw malformed provider body does not reach JSON/log output;
-- credential file content does not reach `doctor` output.
-
-### 30.8 Snapshot tests
-
-Do not add a snapshot-test crate.
-
-Serialize representative `QuotaReport` values and compare them to checked-in JSON strings or fixture files with normal assertions.
-
-This verifies the public machine contract without another dependency.
 
 ## 31. Live acceptance procedure
 
 Run live acceptance only on an operator-controlled machine that already owns the credentials.
 
-Procedure:
-
 ```text
-1. Start Compose with 2 Codex accounts and 1 Command Code account.
+1. Start the broker and Hermes stack with 2 Codex accounts and 1 Command Code account.
 2. Run hquota doctor.
-3. Run hquota.
-4. Run hquota --json.
-5. Run hquota --provider codex.
-6. Run hquota --account business.
-7. Ask Hermes: Show all quota.
-8. Ask Hermes: Which Codex account has more primary quota headroom?
-9. Inspect container mounts and confirm Hermes has no provider credential mount.
-10. Inspect broker logs and outputs for secret leakage.
+3. Run hquota and hquota --json from the client side.
+4. Ask Hermes to show quota.
+5. Inspect mounts and confirm Hermes has no provider credential or Command Code secret mount.
+6. Confirm broker and Hermes-side hquota client use the same intended non-root UID.
+7. Confirm the shared runtime directory is mode 0700 and the socket is mode 0600.
+8. Inspect logs and outputs for secret leakage.
 ```
 
 Do not save raw provider responses from this procedure.
@@ -1192,48 +695,26 @@ cargo test --locked
 cargo build --release --locked
 ```
 
-The build must use the committed `Cargo.lock`.
+The build must use the committed `Cargo.lock`. No network credential is required for the test suite.
 
-No network credential is required for the test suite.
+For Docker packaging changes also run, in an operator environment with Docker available:
+
+```sh
+docker build --target broker -t hquota-broker:local .
+docker build --target hermes -t hermes-hquota:local .
+docker compose config --quiet
+```
 
 ## 33. Change policy
 
 This design does not preserve backward compatibility by default.
 
-For a deliberate breaking machine-contract change:
+For a deliberate breaking machine-contract change, update `spec.md`, increment the affected public/wire version, update producer and consumers together, and delete obsolete compatibility paths unless a real deployment requires overlap.
 
-1. update `spec.md`;
-2. increment public `schema_version` if JSON changes incompatibly;
-3. increment broker `protocol_version` if broker/client wire changes incompatibly;
-4. update broker, client, and Hermes Skill together;
-5. delete obsolete compatibility paths instead of retaining them unless a real deployment requires overlap.
-
-Provider wire changes that can be contained inside `codex.rs` or `command_code.rs` do not require a public schema change when normalized semantics remain unchanged.
+Provider wire changes isolated inside adapters do not require a public schema change when normalized semantics remain unchanged.
 
 ## 34. Non-normative research basis
 
-The implementation decisions above were checked against current public or inspectable sources on 2026-09-15.
+The implementation decisions above were checked against current public or inspectable sources through 2026-09-17.
 
-Primary and high-value sources:
-
-- OpenAI Codex source, current `auth.json` representation:  
-  `https://github.com/openai/codex/blob/main/codex-rs/login/src/auth/storage.rs`  
-  `https://github.com/openai/codex/blob/main/codex-rs/login/src/token_data.rs`
-- OpenAI Codex app-server quota schema, used as a semantic reference even though version 1 acquires quota directly:  
-  `https://github.com/openai/codex/blob/main/codex-rs/app-server-protocol/schema/json/v2/GetAccountRateLimitsResponse.json`
-- OpenAI Codex backend client, current ChatGPT rate-limit implementation and credential-header handling:  
-  `https://github.com/openai/codex/blob/main/codex-rs/backend-client/src/client.rs`
-- Hermes Agent Skill guidance:  
-  `https://github.com/NousResearch/hermes-agent/blob/main/website/docs/developer-guide/creating-skills.md`
-- Docker Compose secrets:  
-  `https://docs.docker.com/compose/how-tos/use-secrets/`  
-  `https://docs.docker.com/reference/compose-file/secrets/`
-- Command Code usage-limit semantics:  
-  `https://commandcode.ai/docs/resources/usage-limits`
-
-The Command Code `/alpha/billing/credits` machine endpoint is not treated as a documented stable public API. Its use in version 1 is based on current third-party observations and must remain isolated inside `command_code.rs`. Representative references include:
-
-- `https://github.com/steipete/CodexBar/issues/2629`
-- `https://github.com/safzanpirani/pi-commandcode-provider/blob/main/docs/troubleshooting.md`
-
-Similarly, the Codex `https://chatgpt.com/backend-api/wham/usage` route is a first-party current implementation surface but is not treated as the hquota public contract. Provider drift is therefore an expected adapter-maintenance event.
+Primary and high-value sources include the OpenAI Codex source, Hermes Agent Docker and Skill documentation, Docker Compose secret documentation, and Command Code usage-limit documentation. Provider-internal endpoints remain adapter implementation surfaces rather than hquota public contracts.
