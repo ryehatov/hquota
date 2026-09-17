@@ -1,13 +1,17 @@
+ARG HERMES_BASE_IMAGE=nousresearch/hermes-agent:latest
+
 FROM rust:1.98.1-bookworm AS build
 WORKDIR /src
 COPY Cargo.toml Cargo.lock ./
 COPY src ./src
 RUN cargo build --release --locked
 
-FROM nousresearch/hermes-agent:latest AS hermes
+FROM ${HERMES_BASE_IMAGE} AS hermes
+ARG HERMES_UID=10000
+ARG HERMES_GID=10000
 COPY --from=build /src/target/release/hquota /usr/local/bin/hquota
 COPY skills/quota /opt/hquota/skills/quota
-USER 10000:10000
+USER ${HERMES_UID}:${HERMES_GID}
 ENTRYPOINT ["hermes"]
 CMD ["gateway", "run"]
 
