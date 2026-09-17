@@ -20,6 +20,12 @@ services:
       - ${CODEX_PERSONAL_HOME:?run sh ./compose-setup.sh first}:/credentials/codex/personal:ro
     secrets:
       - command-code-goat
+    healthcheck:
+      test: ["CMD-SHELL", "test -S /run/hquota/hquota.sock"]
+      interval: 1s
+      timeout: 1s
+      retries: 10
+      start_period: 1s
 
 secrets:
   command-code-goat:
