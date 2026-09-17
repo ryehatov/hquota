@@ -2,12 +2,9 @@ name: hquota
 
 services:
   hquota:
-    image: hquota-broker:local
-    container_name: hermes-hquota
-    build:
-      context: .
-      target: broker
-    user: "${HERMES_UID:?run sh ./compose-setup.sh first}:${HERMES_GID:?run sh ./compose-setup.sh first}"
+    image: hquota:local
+    build: .
+    user: "${HOST_UID}:${HOST_GID}"
     command: ["serve", "--config", "/etc/hquota/config.json"]
     restart: unless-stopped
     read_only: true
@@ -16,11 +13,11 @@ services:
     volumes:
       - ./run/hquota:/run/hquota
       - ./config.json:/etc/hquota/config.json:ro
-      - ${CODEX_BUSINESS_HOME:?run sh ./compose-setup.sh first}:/credentials/codex/business:ro
-      - ${CODEX_PERSONAL_HOME:?run sh ./compose-setup.sh first}:/credentials/codex/personal:ro
+      - ${CODEX_BUSINESS_HOME}:/credentials/codex/business:ro
+      - ${CODEX_PERSONAL_HOME}:/credentials/codex/personal:ro
     secrets:
       - command-code-goat
 
 secrets:
   command-code-goat:
-    file: ${COMMAND_CODE_KEY_FILE:?run sh ./compose-setup.sh first}
+    file: ./secrets/command-code-goat
