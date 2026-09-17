@@ -38,7 +38,6 @@ HERMES_GID=$gid
 CODEX_BUSINESS_HOME=$business
 CODEX_PERSONAL_HOME=$personal
 COMMAND_CODE_KEY_FILE=$command_key
-HERMES_BASE_IMAGE=nousresearch/hermes-agent:latest
 EOF_ENV
 chmod 0600 .env
 
