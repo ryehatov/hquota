@@ -18,15 +18,13 @@ They do not contact providers. Dependency acquisition can require crates.io acce
 
 ## Local broker
 
-Install the binary on the broker and client machines/containers. Both must share
-one Unix socket and run as the same non-root UID. Linux is the deployment target.
-The broker checks ownership and permissions through `/proc/self` and filesystem
-metadata. Provision `/run/hquota` with mode `0700`, owned by that UID. The broker
-creates `/run/hquota/hquota.sock` with mode `0600`.
+Install the binary on the broker and client machines or containers. Both must
+share one Unix socket and run as the same non-root UID. Linux is the deployment
+target. The broker requires `/run/hquota` to be owned by its UID with mode
+`0700`; it creates `/run/hquota/hquota.sock` with mode `0600`.
 
-Copy `config.example.json` to `/etc/hquota/config.json`, adjusting account names and
-absolute credential paths. Configuration contains paths only. The broker rejects
-unknown fields, duplicate identities, invalid names and relative credential paths.
+Copy `config.example.json` to `/etc/hquota/config.json`, adjust account names and
+absolute credential paths, then run:
 
 ```sh
 hquota serve --config /etc/hquota/config.json
@@ -37,57 +35,34 @@ hquota --provider codex
 hquota --account business
 ```
 
-Quota commands exit successfully when a report arrives, even if accounts failed.
-Selectors filter that single report locally. `hquota doctor` performs **live**
-credential/provider checks and fails if any account fails. Run it only when you
-intend to contact providers. Unknown-field warnings alone do not fail doctor.
+`hquota doctor` performs live credential/provider checks. Run it only when live
+provider access is intended.
 
 Codex files require nonempty `tokens.access_token` and `tokens.account_id`.
-Command Code files contain one key, with surrounding ASCII whitespace permitted.
-Files are read anew per request, never modified or cached. Mount credential
-**directories** when atomic file replacement must remain visible in containers.
+Command Code files contain one key. Credential files are read for each request;
+they are never modified or cached.
 
-## Docker Compose
+## Docker images
 
-`Dockerfile` has `broker` and `hermes` targets that share one compiled `hquota`
-binary. `compose.yaml` intentionally owns only the broker service. An external
-Hermes stack should own its Hermes container and mount the shared socket.
+`Dockerfile` has two runtime targets that share the same compiled binary:
 
-Run the one-time setup with the two Codex credential directories and the Command
-Code key file:
+- `broker`: minimal non-root hquota broker image;
+- `hermes`: a derivative Hermes image that only adds `/usr/local/bin/hquota`.
 
-```sh
-sh ./compose-setup.sh \
-  "$HOME/.codex-business" \
-  "$HOME/.codex-personal" \
-  "$HOME/.config/command-code/api-key"
-```
+The `hermes` target deliberately preserves the base Hermes image's `USER`,
+`ENTRYPOINT`, and `CMD`. Current Hermes images start their s6 bootstrap as root,
+apply `HERMES_UID`/`HERMES_GID`, initialize `/opt/data`, set the runtime home, and
+then drop privileges. An external Compose stack must not pin `user:` or replace
+the Hermes entrypoint.
 
-The script writes `.env`, copies `config.example.json` to ignored `config.json` on
-first use, and creates `run/hquota` with mode `0700` under the current non-root
-UID. The generated `.env` contains only host-dependent values required by Compose:
-UID/GID and credential paths.
-
-Build and start the broker:
+Build stable local images for `hermes-stack`:
 
 ```sh
-docker compose config --quiet
-docker compose build hquota
-docker compose up -d hquota
-docker logs hermes-hquota
-```
-
-The broker image is `hquota-broker:local` and the container name is
-`hermes-hquota`. Both are fixed in `compose.yaml`; they are not environment
-configuration.
-
-To build an Hermes image containing the same `hquota` binary:
-
-```sh
+docker build --target broker -t hquota-broker:local .
 docker build --target hermes -t hermes-hquota:local .
 ```
 
-If Hermes must extend another local base image, pass it only at build time:
+To extend a different Hermes base image, pass it only at build time:
 
 ```sh
 docker build \
@@ -97,21 +72,62 @@ docker build \
   .
 ```
 
-For an external `hermes-stack`, reference `hquota-broker:local` for the broker and
-`hermes-hquota:local` when the derivative Hermes image is needed. The external
-stack does not need `HQUOTA_SOURCE`, a mounted hquota source tree, or a second
-Dockerfile that copies the `hquota` binary.
+## Standalone broker Compose
 
-Do not use UID 0. Ensure the key file and Codex credential files are readable by
-the configured broker UID. File-backed Compose secrets do not portably remap
-ownership. The broker receives read-only credential mounts and never receives
-Hermes data. Hermes should receive only its own data, the quota Skill, and the
-shared socket, never provider credentials.
+The repository Compose file owns only the broker. It is also a reference for the
+broker service embedded by an external Hermes stack.
 
-The `quota` Skill is in `skills/quota`. An external Hermes stack must install or
-mount it into the Hermes skills directory. The Skill calls `hquota --json` once,
-checks schema version 1, and reports facts without choosing accounts or routing
-future work.
+Run the one-time setup with the two Codex credential directories and a Command
+Code key source file:
+
+```sh
+sh ./compose-setup.sh \
+  "$HOME/.codex-business" \
+  "$HOME/.codex-personal" \
+  "$HOME/.config/command-code/api-key"
+```
+
+The script:
+
+- writes `.env` with only the host UID/GID and Codex credential-directory paths;
+- copies `config.example.json` to ignored `config.json` on first use;
+- creates `run/hquota` with mode `0700`;
+- copies the Command Code key to ignored `secrets/command-code-goat` with mode
+  `0600`.
+
+The Command Code key value and source pathname are not stored in `.env`.
+Compose mounts only `secrets/command-code-goat` into the broker as
+`/run/secrets/command-code-goat`.
+
+```sh
+docker compose config --quiet
+docker compose build hquota
+docker compose up -d hquota
+docker logs hermes-hquota
+```
+
+The broker image name is `hquota-broker:local` and its explicit container name
+is `hermes-hquota`.
+
+## External Hermes stack
+
+An external `hermes-stack` should own the Hermes container and any SearXNG or
+other services. It should:
+
+- use `hermes-hquota:local` for Hermes and `hquota-broker:local` for the broker;
+- pass `HERMES_UID` and `HERMES_GID` to Hermes as environment variables;
+- not set `user:` or override the Hermes entrypoint;
+- bind the same host `run/hquota` directory to `/run/hquota` in both containers;
+- mount provider credentials and the Command Code secret only into the broker;
+- install or mount `skills/quota` into the Hermes persistent Skill directory
+  (for the official image, under `/opt/data/skills`);
+- keep `run/hquota` mode `0700` and owned by the shared intended non-root UID.
+
+The Hermes process receives only normalized quota data over the Unix socket. It
+must never receive provider credential mounts.
+
+The quota Skill calls `hquota --json` once, checks schema version 1, and reports
+facts without choosing accounts or routing future work.
 
 ## Provider evidence and limits
 
@@ -121,17 +137,17 @@ Codex DTOs follow the generated models and backend wrapper in
 Command Code wire evidence comes from
 [CodexBar #2466](https://github.com/steipete/CodexBar/pull/2466) and
 [pi-commandcode-provider](https://github.com/safzanpirani/pi-commandcode-provider/blob/main/docs/troubleshooting.md).
-Only `/alpha/billing/credits` is requested. Both observed rolling-window locations
-are recognized; simultaneous pools fail rather than choosing one silently.
-Monthly/premium/open-source balances are omitted because the available evidence
-does not establish whether they represent remaining or granted amounts.
+Only `/alpha/billing/credits` is requested. Both observed rolling-window
+locations are recognized; simultaneous pools fail rather than choosing one
+silently. Monthly/premium/open-source balances are omitted because the available
+evidence does not establish whether they represent remaining or granted amounts.
 No currency is inferred. Purchased/free balances remain separate from headroom.
 
 Live Docker/Hermes acceptance requires an operator-controlled environment with
 two Codex accounts and one Command Code account. Follow design §31, including
-mount inspection and leakage checks. Passing offline tests is not live acceptance.
-No OAuth refresh, retry, history, persistence, proxy, account switching or provider
-URL configuration is implemented.
+mount inspection and leakage checks. Passing offline tests is not live
+acceptance. No OAuth refresh, retry, history, persistence, proxy, account
+switching or provider URL configuration is implemented.
 
 ## Contributing and security
 
