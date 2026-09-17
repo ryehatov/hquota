@@ -37,5 +37,6 @@ HOST_GID=$gid
 CODEX_BUSINESS_HOME=$business
 CODEX_PERSONAL_HOME=$personal
 EOF_ENV
+chmod 0600 .env
 
 echo "compose-setup: ready"
