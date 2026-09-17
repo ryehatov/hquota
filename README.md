@@ -97,16 +97,22 @@ docker build \
   .
 ```
 
+The `hermes` target deliberately preserves the base Hermes image's user,
+entrypoint and command. Current Hermes images start their s6 bootstrap as root,
+remap the internal `hermes` user from `HERMES_UID`/`HERMES_GID`, initialize the
+`/opt/data` volume, then drop privileges. An external Compose stack must not pin
+that service with `user:` or replace the Hermes entrypoint.
+
 For an external `hermes-stack`, reference `hquota-broker:local` for the broker and
 `hermes-hquota:local` when the derivative Hermes image is needed. The external
 stack does not need `HQUOTA_SOURCE`, a mounted hquota source tree, or a second
 Dockerfile that copies the `hquota` binary.
 
-Do not use UID 0. Ensure the key file and Codex credential files are readable by
-the configured broker UID. File-backed Compose secrets do not portably remap
-ownership. The broker receives read-only credential mounts and never receives
-Hermes data. Hermes should receive only its own data, the quota Skill, and the
-shared socket, never provider credentials.
+Do not use UID 0 for the broker. Ensure the key file and Codex credential files
+are readable by the configured broker UID. File-backed Compose secrets do not
+portably remap ownership. The broker receives read-only credential mounts and
+never receives Hermes data. Hermes should receive only its own data, the quota
+Skill, and the shared socket, never provider credentials.
 
 The `quota` Skill is in `skills/quota`. An external Hermes stack must install or
 mount it into the Hermes skills directory. The Skill calls `hquota --json` once,
