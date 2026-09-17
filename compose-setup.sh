@@ -2,7 +2,7 @@
 set -eu
 
 usage() {
-    echo "usage: sh ./compose-setup.sh CODEX_BUSINESS_HOME CODEX_PERSONAL_HOME COMMAND_CODE_KEY_FILE" >&2
+    echo "usage: sh ./compose-setup.sh CODEX_BUSINESS_HOME CODEX_PERSONAL_HOME COMMAND_CODE_KEY_SOURCE" >&2
     exit 2
 }
 
@@ -21,25 +21,26 @@ command_key=$(realpath "$3")
 [ -f "$command_key" ] || { echo "compose-setup: not a file: $command_key" >&2; exit 1; }
 [ -r "$command_key" ] || { echo "compose-setup: key is not readable: $command_key" >&2; exit 1; }
 
-install -d -m 0700 ./run/hquota
-[ "$(stat -c %u ./run/hquota)" -eq "$uid" ] || {
+install -d run/hquota secrets
+chmod 0700 run/hquota secrets
+chmod g-s run/hquota secrets
+[ "$(stat -c %u run/hquota)" -eq "$uid" ] || {
     echo "compose-setup: run/hquota must be owned by uid $uid" >&2
     exit 1
 }
+install -m 0600 "$command_key" secrets/command-code-goat
 
 if [ ! -f config.json ]; then
     cp config.example.json config.json
 fi
 
 umask 077
-cat > .env <<EOF_ENV
+cat > .env <<EOF
 HERMES_UID=$uid
 HERMES_GID=$gid
 CODEX_BUSINESS_HOME=$business
 CODEX_PERSONAL_HOME=$personal
-COMMAND_CODE_KEY_FILE=$command_key
-EOF_ENV
+EOF
 chmod 0600 .env
 
-echo "compose-setup: wrote .env and prepared ./run/hquota"
-echo "compose-setup: edit config.json if account names or providers differ"
+echo "compose-setup: ready"
