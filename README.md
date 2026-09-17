@@ -49,11 +49,9 @@ Files are read anew per request, never modified or cached. Mount credential
 
 ## Docker Compose
 
-`Dockerfile` has `broker` and `hermes` targets sharing the same compiled binary.
-The `hermes` target can extend an existing Hermes image through
-`HERMES_BASE_IMAGE`; this is the intended path for integration into a larger
-Hermes stack. Compose assigns stable local image names so another Compose project
-can reference the images without depending on this repository at runtime.
+`Dockerfile` has `broker` and `hermes` targets that share one compiled `hquota`
+binary. `compose.yaml` intentionally owns only the broker service. An external
+Hermes stack should own its Hermes container and mount the shared socket.
 
 Run the one-time setup with the two Codex credential directories and the Command
 Code key file:
@@ -65,63 +63,55 @@ sh ./compose-setup.sh \
   "$HOME/.config/command-code/api-key"
 ```
 
-The script writes `.env`, copies `config.example.json` to the ignored local
-`config.json` on first use, and creates `run/hquota` with mode `0700` under the
-current non-root UID. Edit `.env` or `config.json` once if local paths, account
-names or providers differ.
+The script writes `.env`, copies `config.example.json` to ignored `config.json` on
+first use, and creates `run/hquota` with mode `0700` under the current non-root
+UID. The generated `.env` contains only host-dependent values required by Compose:
+UID/GID and credential paths.
 
-Build the broker image:
+Build and start the broker:
 
 ```sh
 docker compose config --quiet
 docker compose build hquota
-```
-
-The resulting image is `hquota-broker:local` by default. Start only the broker:
-
-```sh
 docker compose up -d hquota
 docker logs hermes-hquota
 ```
 
-The explicit container name is `hermes-hquota` by default, so Compose does not
-append a replica suffix such as `-1`.
+The broker image is `hquota-broker:local` and the container name is
+`hermes-hquota`. Both are fixed in `compose.yaml`; they are not environment
+configuration.
 
-To build an Hermes image containing the same `hquota` binary, set the base image
-in `.env` when required and build the optional `gateway` service:
-
-```dotenv
-HERMES_BASE_IMAGE=hermes-base:hquota
-```
+To build an Hermes image containing the same `hquota` binary:
 
 ```sh
-docker compose build gateway
+docker build --target hermes -t hermes-hquota:local .
 ```
 
-The resulting image is `hermes-hquota:local` by default. For a standalone test of
-both services from this repository, enable the optional Hermes profile:
+If Hermes must extend another local base image, pass it only at build time:
 
 ```sh
-docker compose --profile hermes up -d
+docker build \
+  --build-arg HERMES_BASE_IMAGE=hermes-base:hquota \
+  --target hermes \
+  -t hermes-hquota:local \
+  .
 ```
 
-For an external `hermes-stack`, build both images here and reference only
-`hquota-broker:local` and `hermes-hquota:local` there. The external stack should
-own its own runtime directory and `config.json`; it does not need
-`HQUOTA_SOURCE`, this repository mounted into the broker, or another derivative
-Dockerfile just to copy the `hquota` binary.
+For an external `hermes-stack`, reference `hquota-broker:local` for the broker and
+`hermes-hquota:local` when the derivative Hermes image is needed. The external
+stack does not need `HQUOTA_SOURCE`, a mounted hquota source tree, or a second
+Dockerfile that copies the `hquota` binary.
 
 Do not use UID 0. Ensure the key file and Codex credential files are readable by
 the configured broker UID. File-backed Compose secrets do not portably remap
-ownership. The broker receives read-only credential mounts and no Hermes data
-volume. Hermes receives only its own runtime data, the Skill, and the shared
-socket, never provider credentials.
+ownership. The broker receives read-only credential mounts and never receives
+Hermes data. Hermes should receive only its own data, the quota Skill, and the
+shared socket, never provider credentials.
 
-The `quota` Skill is mounted into `$HERMES_HOME/skills/quota` by this repository's
-standalone Compose configuration. An external Hermes stack must install or mount
-`skills/quota` into its own Hermes data directory. The Skill calls `hquota --json`
-once, checks schema version 1, and reports facts without choosing accounts or
-routing future work.
+The `quota` Skill is in `skills/quota`. An external Hermes stack must install or
+mount it into the Hermes skills directory. The Skill calls `hquota --json` once,
+checks schema version 1, and reports facts without choosing accounts or routing
+future work.
 
 ## Provider evidence and limits
 
