@@ -21,25 +21,6 @@ services:
     secrets:
       - command-code-goat
 
-  gateway:
-    profiles: [hermes]
-    image: hermes-hquota:local
-    build:
-      context: .
-      target: hermes
-      args:
-        HERMES_BASE_IMAGE: ${HERMES_BASE_IMAGE:-nousresearch/hermes-agent:latest}
-    user: "${HERMES_UID}:${HERMES_GID}"
-    environment:
-      HOME: /home/hermes
-      HERMES_HOME: /home/hermes/.hermes
-    volumes:
-      - ${HERMES_DATA_DIR:-${HOME}/.hermes}:/home/hermes/.hermes
-      - ./skills/quota:/home/hermes/.hermes/skills/quota:ro
-      - ./run/hquota:/run/hquota
-    depends_on:
-      - hquota
-
 secrets:
   command-code-goat:
     file: ${COMMAND_CODE_KEY_FILE:?run sh ./compose-setup.sh first}
