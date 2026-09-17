@@ -23,17 +23,12 @@ rustc-ice-*.txt
 #  option (not recommended) you can uncomment the following to ignore the entire idea folder.
 #.idea/
 
-# ENV
+# Local configuration and credentials (keep config.example.json tracked)
 .env
-
-
-# Added by cargo
-
-/target
-
-
-# Added by cargo
-#
-# already existing elements were commented out
-
-#/target
+.env.*
+!.env.example
+/config.json
+*.key
+*auth.json
+credentials/
+.pi/

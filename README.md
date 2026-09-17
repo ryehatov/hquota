@@ -1,6 +1,6 @@
 # hquota
 
-Read-only, on-demand Codex and Command Code quota for humans and Hermes.
+On-demand Codex and Command Code quota for humans and Hermes.
 One Rust binary provides a credential-facing broker and a Unix-socket client.
 The governing contracts are [spec.md](docs/spec.md) and [design.md](docs/design.md).
 
@@ -97,3 +97,12 @@ two Codex accounts and one Command Code account. Follow design §31, including
 mount inspection and leakage checks. Passing offline tests is not live acceptance.
 No OAuth refresh, retry, history, persistence, proxy, account switching or provider
 URL configuration is implemented.
+
+## Contributing and security
+
+See [CONTRIBUTING.md](CONTRIBUTING.md) for development checks and
+[SECURITY.md](SECURITY.md) for private vulnerability reporting.
+
+## License
+
+[MIT](LICENSE). Dependencies and container base images retain their own licenses.

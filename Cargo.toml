@@ -2,6 +2,9 @@
 name = "hquota"
 version = "0.1.0"
 edition = "2024"
+description = "On-demand Codex and Command Code quota for humans and Hermes"
+license = "MIT"
+readme = "README.md"
 
 [dependencies]
 reqwest = { version = "0.13", default-features = false, features = ["blocking", "json", "rustls"] }
