@@ -2,8 +2,8 @@ name: hquota
 
 services:
   hquota:
-    image: ${HQUOTA_BROKER_IMAGE:-hquota-broker:local}
-    container_name: ${HQUOTA_CONTAINER_NAME:-hermes-hquota}
+    image: hquota-broker:local
+    container_name: hermes-hquota
     build:
       context: .
       target: broker
@@ -14,7 +14,7 @@ services:
     cap_drop: [ALL]
     security_opt: [no-new-privileges:true]
     volumes:
-      - ${HQUOTA_RUNTIME_DIR:?run sh ./compose-setup.sh first}:/run/hquota
+      - ./run/hquota:/run/hquota
       - ./config.json:/etc/hquota/config.json:ro
       - ${CODEX_BUSINESS_HOME:?run sh ./compose-setup.sh first}:/credentials/codex/business:ro
       - ${CODEX_PERSONAL_HOME:?run sh ./compose-setup.sh first}:/credentials/codex/personal:ro
@@ -23,22 +23,20 @@ services:
 
   gateway:
     profiles: [hermes]
-    image: ${HERMES_HQUOTA_IMAGE:-hermes-hquota:local}
+    image: hermes-hquota:local
     build:
       context: .
       target: hermes
       args:
         HERMES_BASE_IMAGE: ${HERMES_BASE_IMAGE:-nousresearch/hermes-agent:latest}
-        HERMES_UID: ${HERMES_UID:?run sh ./compose-setup.sh first}
-        HERMES_GID: ${HERMES_GID:?run sh ./compose-setup.sh first}
     user: "${HERMES_UID}:${HERMES_GID}"
     environment:
       HOME: /home/hermes
       HERMES_HOME: /home/hermes/.hermes
     volumes:
-      - ${HERMES_DATA_DIR:?run sh ./compose-setup.sh first}:/home/hermes/.hermes
+      - ${HERMES_DATA_DIR:-${HOME}/.hermes}:/home/hermes/.hermes
       - ./skills/quota:/home/hermes/.hermes/skills/quota:ro
-      - ${HQUOTA_RUNTIME_DIR}:/run/hquota
+      - ./run/hquota:/run/hquota
     depends_on:
       - hquota
 
