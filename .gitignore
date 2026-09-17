@@ -29,6 +29,7 @@ rustc-ice-*.txt
 !.env.example
 /config.json
 /run/
+/secrets/
 *.key
 *auth.json
 credentials/
